@@ -1,0 +1,9 @@
+[package]
+name = "ced"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0"
+getch-rs = "0"
+nix = "0"
