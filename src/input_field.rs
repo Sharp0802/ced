@@ -126,6 +126,14 @@ impl Input {
     }
 
     pub fn put_char(&mut self, mut c: &Key) {
+        if let Key::Char('\t') = c {
+            self.put_char(&Key::Char(' '));
+            self.put_char(&Key::Char(' '));
+            self.put_char(&Key::Char(' '));
+            self.put_char(&Key::Char(' '));
+            return;
+        }
+
         if let Key::Char('\r') = c {
             c = &Key::Char('\n');
         }
