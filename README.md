@@ -1,5 +1,7 @@
 # *ced* : Code EDitor
 
+[![cargo test](https://github.com/Sharp0802/ced/actions/workflows/cargo-test.yml/badge.svg)](https://github.com/Sharp0802/ced/actions/workflows/cargo-test.yml)
+
 *ced* is tui text-editor written in Rust.
 
 ## Known issue
