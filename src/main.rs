@@ -1,12 +1,18 @@
-mod input;
+mod input_field;
+mod editing_widget;
+mod input_handler;
+mod widget;
+mod global;
+mod global_widget;
 
-use crate::input::Input;
-use getch_rs::Key;
+use crate::global::Global;
+use crate::global_widget::GlobalWidget;
+use crate::input_handler::InputHandler;
+use crate::widget::Widget;
 use nix::poll::{poll, PollFd, PollFlags};
 use ratatui::layout::Flex;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use std::io::{stdin, Write};
+use std::io::stdin;
 use std::os::fd::AsRawFd;
 
 fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
@@ -19,77 +25,33 @@ fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
     area
 }
 
-fn main() {
-    /*
-    if args().len() != 2 {
-        eprintln!("USAGE: ted <name>");
-        exit(1);
-    }*/
 
+fn main() {
     let getch = getch_rs::Getch::new();
     let stdin = stdin().as_raw_fd();
     let poll_fd = PollFd::new(stdin, PollFlags::POLLIN);
 
-
-    let mut current_file = "";
-
-    let mut editing_field = Input::multi_line();
+    let mut global = Global::new();
+    let mut global_widget = GlobalWidget::new();
 
     let mut terminal = ratatui::init();
-    loop {
+    while !global.shutdown() {
         terminal.draw(|frame| {
-            let layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(vec![
-                    Constraint::Fill(1),
-                    Constraint::Length(72),
-                    Constraint::Fill(1),
-                ])
-                .split(frame.area());
+            global_widget.draw(frame, frame.area(), &global);
 
-            let p = Paragraph::new(editing_field.get_element())
-                .block(Block::bordered()
-                    .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
-                    .title(if current_file.len() == 0 { "*" } else { current_file }))
-                .wrap(Wrap { trim: true });
+            if poll(&mut [ poll_fd ], 0).unwrap() == 0 {
+                return;
+            }
 
-            frame.render_widget(p, layout[1]);
+            let key = match getch.getch() {
+                Ok(key) => key,
+                Err(_) => return,
+            };
+
+            if global_widget.handle(&key, &global) {
+                global.set_shutdown();
+            }
         }).unwrap();
-
-        if poll(&mut [ poll_fd ], 0).unwrap() == 0 {
-            continue;
-        }
-
-        let key = match getch.getch() {
-            Ok(key) => key,
-            Err(_) => continue,
-        };
-
-        editing_field.put_char(&key);
-
-        match key {
-            Key::Esc => {
-                break;
-            }
-            Key::Ctrl('s') => {
-                /*
-                if current_file.len() == 0 {
-
-                    let dialog = Paragraph::new("")
-                        .block(Block::bordered()
-                            .title("New File")
-                            .border_type(BorderType::Double));
-
-                    let file = match File::create_new(current_file) {
-                        Ok(file) => file,
-                        Err(e) => {}
-                    };
-                } else {
-
-                }*/
-            }
-            _ => {}
-        }
     }
     ratatui::restore();
 }
