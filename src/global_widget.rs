@@ -12,7 +12,7 @@ pub struct GlobalWidget {
 impl GlobalWidget {
     pub fn new() -> Self {
         Self {
-            editing_widget: EditingWidget::new(),
+            editing_widget: EditingWidget::multi_line(),
         }
     }
 }
