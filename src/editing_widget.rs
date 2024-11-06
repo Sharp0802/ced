@@ -5,26 +5,34 @@ use getch_rs::Key;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 use ratatui::Frame;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct EditingWidget {
     single_line: bool,
+    title: String,
     content: String,
     cursor: usize,
-    scroll: usize
+    scroll: usize,
+    focused: bool,
 }
 
 impl Widget for EditingWidget {
-    fn draw(&mut self, frame: &mut Frame, rect: Rect, global: &Global) {
+    fn draw(&mut self, frame: &mut Frame, rect: Rect, _global: &Global) {
 
         let block = Block::bordered()
-            .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
-            .title(if global.current_file().len() == 0 { "*" } else { global.current_file() });
-        let block_inner = block.inner(rect);
-        frame.render_widget(block, rect);
+            .title(self.title.clone())
+            .border_type(if self.single_line { BorderType::Rounded } else { BorderType::Plain });
 
-        let [_, content_rect, scrollbar_rect] = Layout::horizontal(vec![
+        let block_inner = block.inner(rect);
+
+        let mut block_rect = rect;
+        if self.single_line {
+            block_rect.height = 3;
+        }
+        frame.render_widget(block, block_rect);
+
+        let [_, mut content_rect, scrollbar_rect] = Layout::horizontal(vec![
             Constraint::Length(1),
             Constraint::Fill(1),
             Constraint::Length(1),
@@ -32,11 +40,21 @@ impl Widget for EditingWidget {
             unreachable!()
         };
 
+        if self.single_line {
+            content_rect.height = 1;
+            content_rect.width += 1;
+        }
+
         let p = Paragraph::new(self.get_text())
             .scroll((self.scroll as u16, 0))
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: false });
 
         frame.render_widget(p, content_rect);
+
+        // scrollbar shouldn't be drawn when single-line mode
+        if self.single_line {
+            return;
+        }
 
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .thumb_symbol("┃")
@@ -55,19 +73,44 @@ impl EditingWidget {
     pub fn single_line() -> Self {
         Self {
             single_line: true,
+            title: String::new(),
             content: String::new(),
             cursor: 0,
-            scroll: 0
+            scroll: 0,
+            focused: true,
         }
     }
 
     pub fn multi_line() -> Self {
         Self {
             single_line: false,
+            title: String::new(),
             content: String::new(),
             cursor: 0,
-            scroll: 0
+            scroll: 0,
+            focused: true,
         }
+    }
+
+    pub fn set_title(&mut self, title: &str) {
+        self.title = title.to_string();
+    }
+
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    pub fn get_focused(&self) -> bool {
+        self.focused
+    }
+
+    pub fn set_content(&mut self, content: &str) {
+        self.content = content.to_string();
+        self.cursor = 0;
+    }
+
+    pub fn get_content(&self) -> &str {
+        &self.content
     }
 
     fn next_char(&mut self) {
@@ -127,15 +170,24 @@ impl EditingWidget {
 
         let mut width = 1;
         let mut tmp_cursor = self.cursor;
-        while self.content.bytes().nth(tmp_cursor).unwrap_or(0) != 0x0A && tmp_cursor > 0 {
-            tmp_cursor -= 1;
+
+        while {
+            if tmp_cursor > 0 {
+                tmp_cursor -= 1;
+            }
             width += 1;
-        }
+
+            self.content.bytes().nth(tmp_cursor).unwrap_or(0) != 0x0A && tmp_cursor > 0
+        } {};
 
         let mut content_length = self.content.len();
         if content_length > 0 {
             content_length -= 1;
         }
+        if self.cursor == content_length {
+            return;
+        }
+
 
         while self.content.bytes().nth(self.cursor).unwrap_or(0) != 0x0A && self.cursor < content_length {
             self.cursor += 1;
@@ -185,19 +237,24 @@ impl EditingWidget {
         let mut current_line: usize = 1;
         let total_line = self.content.bytes().filter(|b| *b == 0x0A).count();
 
-        let mid_style = if SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1000 > 500 {
+        let mid_style = if SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1000 > 500 || !self.focused {
             Style::default()
         } else {
             Style::default().reversed()
         };
 
+        let element: Line = if self.single_line {
+            Line::default()
+        } else {
+            Line::from(Self::line_number_txt(total_line, current_line))
+        };
+
         if self.content.len() == 0 {
-            Text::from(Self::line_number_txt(total_line, current_line) +
-                Span::styled(" ", mid_style))
+            Text::from(element + Span::styled(" ", mid_style))
         } else {
             let mut offset: usize = 0;
             Text::from(lines.into_iter().map(|line| {
-                let element;
+                let mut element = element.clone();
 
                 let new_offset = offset + line.len() + 1;
                 if offset <= self.cursor && self.cursor < new_offset - 1 {
@@ -214,21 +271,18 @@ impl EditingWidget {
                         .split_at_checked(at)
                         .unwrap_or((" ", ""));
 
-                    element = Self::line_number_txt(total_line, current_line) +
-                        Span::styled(left, Style::default()) +
-                        Span::styled(mid, mid_style) +
-                        Span::styled(right, Style::default());
+                    element += Span::styled(left, Style::default());
+                    element += Span::styled(mid, mid_style);
+                    element += Span::styled(right, Style::default());
                 } else if self.cursor == new_offset - 1 {
 
                     // if last character is line-feed, display linebreak symbol
                     let mid = if self.content.bytes().nth(self.cursor).unwrap_or(0) == 0x0A { "↵" } else { " " };
 
-                    element = Self::line_number_txt(total_line, current_line) +
-                        Span::styled(line, Style::default()) +
-                        Span::styled(mid, mid_style);
+                    element += Span::styled(line, Style::default());
+                    element += Span::styled(mid, mid_style);
                 } else {
-                    element = Self::line_number_txt(total_line, current_line) +
-                        Span::styled(line, Style::default());
+                    element += Span::styled(line, Style::default());
                 }
 
                 *(&mut offset) = new_offset;
@@ -300,7 +354,7 @@ impl InputHandler for EditingWidget {
 
                 self.scroll -= 1;
             }
-            Key::Home =>  {
+            Key::Home => {
                 self.scroll = 0;
             }
             Key::End => {
