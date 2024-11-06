@@ -9,20 +9,8 @@ use crate::global_widget::GlobalWidget;
 use crate::input_handler::InputHandler;
 use crate::widget::Widget;
 use nix::poll::{poll, PollFd, PollFlags};
-use ratatui::layout::Flex;
-use ratatui::prelude::*;
 use std::io::stdin;
 use std::os::fd::AsRawFd;
-
-fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
-    let [area] = Layout::horizontal([horizontal])
-        .flex(Flex::Center)
-        .areas(area);
-    let [area] = Layout::vertical([vertical])
-        .flex(Flex::Center)
-        .areas(area);
-    area
-}
 
 
 fn main() {
@@ -38,7 +26,7 @@ fn main() {
         terminal.draw(|frame| {
             global_widget.draw(frame, frame.area(), &global);
 
-            if poll(&mut [ poll_fd ], 0).unwrap() == 0 {
+            if poll(&mut [ poll_fd ], 15).unwrap() == 0 {
                 return;
             }
 
