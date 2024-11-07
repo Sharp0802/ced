@@ -5,6 +5,7 @@ use crate::global::Global;
 use crate::input_handler::InputHandler;
 use crate::widget::Widget;
 use getch_rs::Key;
+use nix::NixPath;
 use ratatui::layout::*;
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
@@ -12,7 +13,9 @@ use ratatui::widgets::Block;
 pub struct GlobalWidget {
     editing_widget: EditingWidget,
     filename_widget: EditingWidget,
+    filename: String,
     save_requested: bool,
+    save_window_title: String,
     save_realm: String,
 }
 
@@ -25,7 +28,9 @@ impl GlobalWidget {
         Self {
             editing_widget: EditingWidget::multi_line(),
             filename_widget,
+            filename: String::new(),
             save_requested: false,
+            save_window_title: String::new(),
             save_realm: String::new(),
         }
     }
@@ -40,9 +45,22 @@ impl GlobalWidget {
         area
     }
 
+    fn set_filename(&mut self, filename: &str) {
+        self.filename = filename.to_string();
+        self.editing_widget.set_title(filename);
+    }
+
     fn request_save_as(&mut self) {
         self.save_requested = true;
+        self.save_window_title = String::from("Save as...");
         self.filename_widget.set_focused(true);
+        self.editing_widget.set_focused(false);
+    }
+
+    fn request_save(&mut self) {
+        self.save_requested = true;
+        self.save_window_title = String::from("Save...");
+        self.filename_widget.set_focused(false);
         self.editing_widget.set_focused(false);
     }
 
@@ -70,13 +88,16 @@ impl Widget for GlobalWidget {
 
         if self.save_requested {
             let dialog = Block::bordered()
-                .title("Save as...");
+                .title(self.save_window_title.clone());
 
             let dialog_width = 32;
-            let dialog_height = 9;
+            let dialog_height = if self.filename_widget.get_focused() { 9 } else { 6 };
 
             let realm_lines = (self.save_realm.len() as f64 / dialog_width as f64 + 1.0) as u16;
-            let mut constraints = vec![Constraint::Length(3)];
+            let mut constraints = vec![];
+            if self.filename_widget.get_focused() {
+                constraints.push(Constraint::Length(3));
+            }
             for _ in 0..realm_lines {
                 constraints.push(Constraint::Length(1));
             }
@@ -89,17 +110,19 @@ impl Widget for GlobalWidget {
                 Constraint::Length(dialog_height + realm_lines));
             let dialog_inner = dialog.inner(dialog_rect);
 
+            frame.render_widget(dialog, dialog_rect);
+
             let rects = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints(constraints)
                 .split(dialog_inner);
 
-            self.filename_widget.draw(frame, rects[0], &global);
-            frame.render_widget(dialog, dialog_rect);
+            if self.filename_widget.get_focused() {
+                self.filename_widget.draw(frame, rects[0], &global);
+            }
 
-
-            let mut i = 1;
+            let mut i = if self.filename_widget.get_focused() { 1 } else { 0 };
             self.save_realm
                 .chars()
                 .collect::<Vec<char>>()
@@ -135,10 +158,13 @@ impl InputHandler for GlobalWidget {
             }
             Key::Char('\n') if self.save_requested => {
 
-                match File::create_new(self.filename_widget.get_content())
+                let filename = &self.filename_widget.get_content().to_string();
+
+                match File::create(filename)
                     .map(|mut file| file.write_all(self.editing_widget.get_content().as_bytes())){
                     Ok(Ok(_)) => {
                         self.goto_top(); // TODO: Close file-saving window only
+                        self.set_filename(filename);
                     }
                     Ok(Err(e)) => {
                         self.save_realm = e.to_string()
@@ -151,7 +177,11 @@ impl InputHandler for GlobalWidget {
                 return false;
             }
             Key::Ctrl('s') => {
-                self.request_save_as();
+                if self.filename.is_empty() || File::open(&self.filename).is_err() {
+                    self.request_save_as();
+                } else {
+                    self.request_save();
+                }
             }
             _ => {}
         }
